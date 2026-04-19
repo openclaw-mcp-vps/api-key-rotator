@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "id": "858688cf-fc93-43b4-a23a-564b751b8b43",
+      "name": "Customer Portal",
+      "description": "Public-facing app deployed on Vercel with OpenAI-powered support answers.",
+      "platform": "vercel",
+      "platformProjectId": "customer-portal-prod",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    },
+    {
+      "id": "7373caa6-f2a3-4f55-ac28-0a92603f5354",
+      "name": "Billing API",
+      "description": "Internal billing service deployed on Netlify functions.",
+      "platform": "netlify",
+      "platformProjectId": "billing-api-prod",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    }
+  ],
+  "keys": [
+    {
+      "id": "ffdb60ce-e382-475b-bc78-31658d30c6d3",
+      "projectId": "858688cf-fc93-43b4-a23a-564b751b8b43",
+      "provider": "aws",
+      "keyName": "AWS_ACCESS_KEY_ID",
+      "maskedValue": "AKIA••••••••9A7P",
+      "status": "stale",
+      "rotationIntervalDays": 90,
+      "lastRotatedAt": "2025-12-21T23:54:30.536Z",
+      "notes": "IAM user scoped to deployment automation only.",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    },
+    {
+      "id": "85db1908-2081-49cc-8208-303b43a9c541",
+      "projectId": "858688cf-fc93-43b4-a23a-564b751b8b43",
+      "provider": "openai",
+      "keyName": "OPENAI_API_KEY",
+      "maskedValue": "sk-l••••••••q8uQ",
+      "status": "stale",
+      "rotationIntervalDays": 90,
+      "lastRotatedAt": "2026-01-05T23:54:30.536Z",
+      "notes": "Used for support chatbot completions.",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    },
+    {
+      "id": "ee283c66-3a38-4f03-9d42-4c38b3709df8",
+      "projectId": "858688cf-fc93-43b4-a23a-564b751b8b43",
+      "provider": "stripe",
+      "keyName": "STRIPE_SECRET_KEY",
+      "maskedValue": "sk_l••••••••9N5X",
+      "status": "healthy",
+      "rotationIntervalDays": 90,
+      "lastRotatedAt": "2026-03-28T23:54:30.536Z",
+      "notes": "Restricted to payment-intent and webhook verification scopes.",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    },
+    {
+      "id": "14c5bbdf-26f5-4a69-bb0f-533c15997d9f",
+      "projectId": "7373caa6-f2a3-4f55-ac28-0a92603f5354",
+      "provider": "aws",
+      "keyName": "AWS_ACCESS_KEY_ID",
+      "maskedValue": "AKIA••••••••9A7P",
+      "status": "healthy",
+      "rotationIntervalDays": 90,
+      "lastRotatedAt": "2026-03-15T23:54:30.536Z",
+      "notes": "IAM user scoped to deployment automation only.",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    },
+    {
+      "id": "ab3b2f15-034c-45d6-b792-ff0a83d38c4d",
+      "projectId": "7373caa6-f2a3-4f55-ac28-0a92603f5354",
+      "provider": "openai",
+      "keyName": "OPENAI_API_KEY",
+      "maskedValue": "sk-l••••••••q8uQ",
+      "status": "healthy",
+      "rotationIntervalDays": 90,
+      "lastRotatedAt": "2026-04-03T23:54:30.536Z",
+      "notes": "Used for support chatbot completions.",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    },
+    {
+      "id": "6c1a7afc-a677-403e-afea-1e0376e1fea1",
+      "projectId": "7373caa6-f2a3-4f55-ac28-0a92603f5354",
+      "provider": "stripe",
+      "keyName": "STRIPE_SECRET_KEY",
+      "maskedValue": "sk_l••••••••9N5X",
+      "status": "healthy",
+      "rotationIntervalDays": 90,
+      "lastRotatedAt": "2026-03-06T23:54:30.536Z",
+      "notes": "Restricted to payment-intent and webhook verification scopes.",
+      "createdAt": "2026-04-19T23:54:30.535Z",
+      "updatedAt": "2026-04-19T23:54:30.535Z"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "e717c4cd-d6a5-4d55-89a9-65042257d419",
+      "action": "initial_seed",
+      "actor": "system",
+      "status": "info",
+      "details": "Seeded demo workspace with two production-style projects.",
+      "timestamp": "2026-04-19T23:54:30.535Z"
+    }
+  ],
+  "purchases": []
+}
