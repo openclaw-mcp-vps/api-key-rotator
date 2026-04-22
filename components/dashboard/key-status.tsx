@@ -1,38 +1,23 @@
-import { formatDistanceToNowStrict } from "date-fns";
-import type { ApiKeyRecord } from "@/lib/db/schema";
+import { differenceInDays, parseISO } from "date-fns";
+
+import type { KeyRecord } from "@/lib/db";
 
 interface KeyStatusProps {
-  keyRecord: ApiKeyRecord;
-  projectName?: string;
+  keyRecord: KeyRecord;
 }
 
-const statusStyles: Record<ApiKeyRecord["status"], string> = {
-  healthy: "bg-emerald-500/20 text-emerald-300",
-  stale: "bg-amber-500/20 text-amber-300",
-  error: "bg-rose-500/20 text-rose-300"
-};
+export function KeyStatus({ keyRecord }: KeyStatusProps) {
+  const ageInDays = differenceInDays(new Date(), parseISO(keyRecord.lastRotatedAt));
+  const isStale = ageInDays >= keyRecord.rotationIntervalDays;
+  const isError = keyRecord.status === "error";
 
-export function KeyStatus({ keyRecord, projectName }: KeyStatusProps) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-slate-100">{keyRecord.keyName}</p>
-          {projectName ? <p className="text-xs text-slate-400">{projectName}</p> : null}
-        </div>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${statusStyles[keyRecord.status]}`}
-        >
-          {keyRecord.status}
-        </span>
-      </div>
-      <p className="text-sm text-slate-300">{keyRecord.maskedValue}</p>
-      <p className="mt-2 text-xs text-slate-500">
-        Rotated {formatDistanceToNowStrict(new Date(keyRecord.lastRotatedAt))} ago
-      </p>
-      {keyRecord.notes ? (
-        <p className="mt-1 text-xs text-slate-500">{keyRecord.notes}</p>
-      ) : null}
-    </div>
-  );
+  if (isError) {
+    return <span className="rounded-full bg-[rgba(248,81,73,0.15)] px-2 py-1 text-xs font-medium text-[var(--danger)]">Error</span>;
+  }
+
+  if (isStale) {
+    return <span className="rounded-full bg-[rgba(245,158,11,0.15)] px-2 py-1 text-xs font-medium text-[var(--warning)]">Stale</span>;
+  }
+
+  return <span className="rounded-full bg-[rgba(46,160,67,0.15)] px-2 py-1 text-xs font-medium text-[var(--success)]">Healthy</span>;
 }

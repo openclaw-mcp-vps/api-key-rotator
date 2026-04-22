@@ -1,0 +1,46 @@
+// Runtime persistence in this project uses encrypted filesystem JSON in lib/db.ts.
+// This schema is provided only as an interoperability map for teams migrating to SQL tooling.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id                String   @id @default(uuid())
+  name              String
+  description       String
+  platform          String
+  platformProjectId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model ApiKey {
+  id                  String   @id @default(uuid())
+  projectId           String
+  provider            String
+  label               String
+  envVarName          String
+  encryptedValue      String
+  lastRotatedAt       DateTime
+  rotationIntervalDays Int
+  status              String
+  notes               String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  actor     String
+  projectId String?
+  keyId     String?
+  details   Json
+  createdAt DateTime @default(now())
+}

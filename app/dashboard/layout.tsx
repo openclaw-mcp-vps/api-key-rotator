@@ -1,57 +1,57 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { LayoutDashboard, FileClock, KeyRound, FolderKanban } from "lucide-react";
-import { hasPaidSessionCookie } from "@/lib/payments";
+import { Activity, FolderKanban, KeyRound, ScrollText } from "lucide-react";
 
-const navigation = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+import { getAccessClaimsFromCookies } from "@/lib/auth";
+
+const links = [
+  { href: "/dashboard", label: "Overview", icon: Activity },
   { href: "/dashboard/projects", label: "Projects", icon: FolderKanban },
-  { href: "/dashboard/keys", label: "Key Rotation", icon: KeyRound },
-  { href: "/dashboard/audit", label: "Audit Log", icon: FileClock }
+  { href: "/dashboard/keys", label: "Keys", icon: KeyRound },
+  { href: "/dashboard/audit", label: "Audit", icon: ScrollText }
 ];
 
-export default async function DashboardLayout({
-  children
-}: {
-  children: React.ReactNode;
-}) {
-  const hasAccess = await hasPaidSessionCookie();
+export default async function DashboardLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const access = await getAccessClaimsFromCookies();
 
-  if (!hasAccess) {
-    redirect("/?paywall=locked");
+  if (!access) {
+    redirect("/");
   }
 
   return (
-    <main className="min-h-screen">
-      <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-8 md:grid-cols-[220px_1fr] md:px-10">
-        <aside className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 md:h-fit">
-          <p className="mb-4 px-2 text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
-            API Key Rotator
-          </p>
-          <nav className="space-y-1">
-            {navigation.map((item) => {
-              const Icon = item.icon;
+    <div className="min-h-screen px-4 py-6 md:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+        <header className="rounded-xl border border-[var(--border)] bg-[rgba(17,24,39,0.86)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-display text-xl font-bold text-white">API Key Rotator Dashboard</p>
+              <p className="text-sm text-[var(--muted)]">
+                Signed in as {access.email} • Plan: {access.plan === "starter" ? "Starter (5 projects)" : "Unlimited"}
+              </p>
+            </div>
+            <Link className="text-sm font-semibold text-[var(--muted)] hover:text-white" href="/">
+              Back to landing
+            </Link>
+          </div>
+          <nav className="mt-4 flex flex-wrap gap-2">
+            {links.map((link) => {
+              const Icon = link.icon;
               return (
                 <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-800 hover:text-slate-100"
+                  key={link.href}
+                  className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[#111b2a] px-3 py-2 text-sm font-medium text-[var(--text)] hover:bg-[#162335]"
+                  href={link.href}
                 >
-                  <Icon size={16} />
-                  {item.label}
+                  <Icon className="h-4 w-4" />
+                  {link.label}
                 </Link>
               );
             })}
           </nav>
-          <Link
-            href="/"
-            className="mt-6 block rounded-md border border-slate-700 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400 hover:border-cyan-400/70 hover:text-cyan-300"
-          >
-            Back to landing page
-          </Link>
-        </aside>
-        <section>{children}</section>
+        </header>
+
+        {children}
       </div>
-    </main>
+    </div>
   );
 }

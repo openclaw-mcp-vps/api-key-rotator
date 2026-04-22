@@ -1,51 +1,50 @@
-import { formatDistanceToNowStrict } from "date-fns";
-import type { Project } from "@/lib/db/schema";
+import Link from "next/link";
+import { Cloud, KeyRound } from "lucide-react";
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface ProjectCardProps {
-  project: Project;
-  keyCount: number;
-  staleCount: number;
-  lastRotatedAt?: string;
+  id: string;
+  name: string;
+  description: string;
+  platform: "vercel" | "netlify";
+  totalKeys: number;
+  staleKeys: number;
 }
 
-export function ProjectCard({
-  project,
-  keyCount,
-  staleCount,
-  lastRotatedAt
-}: ProjectCardProps) {
+export function ProjectCard({ id, name, description, platform, totalKeys, staleKeys }: ProjectCardProps) {
   return (
-    <article className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between space-y-0">
         <div>
-          <h3 className="text-lg font-semibold text-slate-100">{project.name}</h3>
-          <p className="mt-1 text-sm text-slate-400">{project.description}</p>
+          <CardTitle>{name}</CardTitle>
+          <p className="mt-1 text-sm text-[var(--muted)]">{description}</p>
         </div>
-        <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-300">
-          {project.platform}
+        <span className="inline-flex items-center rounded-full border border-[var(--border)] bg-[#111d2a] px-2 py-1 text-xs uppercase tracking-[0.12em] text-[var(--muted)]">
+          <Cloud className="mr-1 h-3 w-3" />
+          {platform}
         </span>
-      </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-md border border-[var(--border)] bg-[#101926] p-3">
+            <p className="text-[var(--muted)]">Tracked keys</p>
+            <p className="mt-1 text-lg font-semibold text-white">{totalKeys}</p>
+          </div>
+          <div className="rounded-md border border-[var(--border)] bg-[#101926] p-3">
+            <p className="text-[var(--muted)]">Stale keys</p>
+            <p className="mt-1 text-lg font-semibold text-white">{staleKeys}</p>
+          </div>
+        </div>
 
-      <dl className="grid grid-cols-3 gap-3 text-sm">
-        <div>
-          <dt className="text-slate-500">Keys</dt>
-          <dd className="mt-1 text-base font-semibold text-slate-100">{keyCount}</dd>
-        </div>
-        <div>
-          <dt className="text-slate-500">Stale</dt>
-          <dd className="mt-1 text-base font-semibold text-amber-300">{staleCount}</dd>
-        </div>
-        <div>
-          <dt className="text-slate-500">Last Rotation</dt>
-          <dd className="mt-1 text-base font-semibold text-slate-100">
-            {lastRotatedAt
-              ? `${formatDistanceToNowStrict(new Date(lastRotatedAt))} ago`
-              : "Never"}
-          </dd>
-        </div>
-      </dl>
-
-      <p className="mt-4 text-xs text-slate-500">Platform ID: {project.platformProjectId}</p>
-    </article>
+        <Link
+          className="inline-flex items-center rounded-md border border-[var(--border)] px-3 py-2 text-sm font-medium text-[var(--text)] transition hover:bg-[#152131]"
+          href={`/dashboard/keys?projectId=${id}`}
+        >
+          <KeyRound className="mr-2 h-4 w-4" />
+          Manage keys
+        </Link>
+      </CardContent>
+    </Card>
   );
 }

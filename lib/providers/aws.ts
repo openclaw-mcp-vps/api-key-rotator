@@ -1,73 +1,62 @@
 import { randomBytes } from "node:crypto";
 import AWS from "aws-sdk";
-import { maskSecret } from "@/lib/utils";
-import type { RotationResult } from "@/lib/providers/types";
 
-export async function rotateAwsKey(params: {
-  iamUserName?: string;
-  previousAccessKeyId?: string;
-}): Promise<RotationResult> {
-  const fallbackSecret = `AKIA${randomBytes(16).toString("hex").toUpperCase().slice(0, 16)}`;
+import type { RotationOutcome } from "@/lib/providers/types";
 
-  if (!process.env.AWS_ROTATOR_ACCESS_KEY_ID || !process.env.AWS_ROTATOR_SECRET_ACCESS_KEY) {
+interface AwsSecretShape {
+  userName?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+}
+
+export async function rotateAwsCredential(existingSecret: string): Promise<RotationOutcome> {
+  const parsed = safeParse(existingSecret);
+
+  if (process.env.AWS_ROTATION_ENABLED !== "true") {
     return {
-      success: true,
-      newSecret: fallbackSecret,
-      maskedValue: maskSecret(fallbackSecret),
-      mode: "simulated",
-      notes: "AWS credentials not configured; generated a compliance-safe placeholder key fingerprint."
+      newSecret: JSON.stringify({
+        userName: parsed.userName ?? "set-user-name",
+        accessKeyId: `AKIA${randomBytes(12).toString("hex").toUpperCase()}`,
+        secretAccessKey: randomBytes(32).toString("base64url")
+      }),
+      notes: "Simulated AWS rotation. Set AWS_ROTATION_ENABLED=true and provide IAM permissions for live key creation."
     };
   }
 
-  const iamUserName = params.iamUserName ?? process.env.AWS_ROTATOR_IAM_USER;
-  if (!iamUserName) {
-    return {
-      success: false,
-      newSecret: fallbackSecret,
-      maskedValue: maskSecret(fallbackSecret),
-      mode: "simulated",
-      notes: "Missing iamUserName. Provide project metadata or AWS_ROTATOR_IAM_USER."
-    };
+  if (!parsed.userName) {
+    throw new Error("AWS key payload must include userName when live rotation is enabled");
   }
 
-  const iam = new AWS.IAM({
-    accessKeyId: process.env.AWS_ROTATOR_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_ROTATOR_SECRET_ACCESS_KEY,
-    region: process.env.AWS_REGION ?? "us-east-1"
-  });
+  const iam = new AWS.IAM();
+  const created = await iam.createAccessKey({ UserName: parsed.userName }).promise();
 
-  try {
-    const createdKey = await iam
-      .createAccessKey({
-        UserName: iamUserName
+  if (!created.AccessKey?.AccessKeyId || !created.AccessKey.SecretAccessKey) {
+    throw new Error("AWS did not return a complete access key payload");
+  }
+
+  if (parsed.accessKeyId) {
+    await iam
+      .deleteAccessKey({
+        UserName: parsed.userName,
+        AccessKeyId: parsed.accessKeyId
       })
       .promise();
+  }
 
-    const createdAccessKeyId = createdKey.AccessKey?.AccessKeyId ?? fallbackSecret;
+  return {
+    newSecret: JSON.stringify({
+      userName: parsed.userName,
+      accessKeyId: created.AccessKey.AccessKeyId,
+      secretAccessKey: created.AccessKey.SecretAccessKey
+    }),
+    notes: "AWS IAM access key rotated successfully."
+  };
+}
 
-    if (params.previousAccessKeyId) {
-      await iam
-        .deleteAccessKey({
-          UserName: iamUserName,
-          AccessKeyId: params.previousAccessKeyId
-        })
-        .promise();
-    }
-
-    return {
-      success: true,
-      newSecret: createdAccessKeyId,
-      maskedValue: maskSecret(createdAccessKeyId),
-      mode: "live",
-      notes: `Created new IAM access key for ${iamUserName}.`
-    };
-  } catch (error) {
-    return {
-      success: false,
-      newSecret: fallbackSecret,
-      maskedValue: maskSecret(fallbackSecret),
-      mode: "simulated",
-      notes: `AWS API rotation failed: ${error instanceof Error ? error.message : "unknown error"}`
-    };
+function safeParse(secret: string): AwsSecretShape {
+  try {
+    return JSON.parse(secret) as AwsSecretShape;
+  } catch {
+    return {};
   }
 }

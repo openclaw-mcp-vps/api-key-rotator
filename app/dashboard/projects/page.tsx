@@ -1,124 +1,119 @@
-import { z } from "zod";
 import { revalidatePath } from "next/cache";
-import { ProjectCard } from "@/components/dashboard/project-card";
-import { Button } from "@/components/ui/button";
-import { addAuditLog, createProject, listKeys, listProjects } from "@/lib/db/store";
+import { z } from "zod";
 
-const createProjectSchema = z.object({
-  name: z.string().min(3),
-  description: z.string().min(12),
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { countProjects, createProject, listProjects, type Platform } from "@/lib/db";
+import { getAccessClaimsFromCookies, isProjectCreationAllowed } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit-log";
+
+const projectSchema = z.object({
+  name: z.string().min(2).max(80),
+  description: z.string().min(10).max(220),
   platform: z.enum(["vercel", "netlify"]),
-  platformProjectId: z.string().min(2)
+  platformProjectId: z.string().min(3).max(120)
 });
 
+async function createProjectAction(formData: FormData) {
+  "use server";
+
+  const access = await getAccessClaimsFromCookies();
+  if (!access) {
+    throw new Error("Missing paid access cookie");
+  }
+
+  const parsed = projectSchema.parse({
+    name: formData.get("name"),
+    description: formData.get("description"),
+    platform: formData.get("platform"),
+    platformProjectId: formData.get("platformProjectId")
+  });
+
+  const currentCount = await countProjects();
+  if (!isProjectCreationAllowed(access, currentCount)) {
+    throw new Error("Project limit reached for current plan");
+  }
+
+  const project = await createProject({
+    name: parsed.name,
+    description: parsed.description,
+    platform: parsed.platform as Platform,
+    platformProjectId: parsed.platformProjectId
+  });
+
+  await writeAuditLog({
+    action: "project.created",
+    actor: access.email,
+    projectId: project.id,
+    details: {
+      platform: project.platform,
+      platformProjectId: project.platformProjectId
+    }
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/projects");
+}
+
 export default async function ProjectsPage() {
-  const [projects, keys] = await Promise.all([listProjects(), listKeys()]);
-
-  const keyCounts = new Map<string, number>();
-  const staleCounts = new Map<string, number>();
-  const lastRotatedMap = new Map<string, string>();
-
-  for (const key of keys) {
-    keyCounts.set(key.projectId, (keyCounts.get(key.projectId) ?? 0) + 1);
-    if (key.status === "stale") {
-      staleCounts.set(key.projectId, (staleCounts.get(key.projectId) ?? 0) + 1);
-    }
-
-    const previousRotation = lastRotatedMap.get(key.projectId);
-    if (!previousRotation || new Date(key.lastRotatedAt) > new Date(previousRotation)) {
-      lastRotatedMap.set(key.projectId, key.lastRotatedAt);
-    }
-  }
-
-  async function createProjectAction(formData: FormData): Promise<void> {
-    "use server";
-
-    const parsed = createProjectSchema.parse({
-      name: formData.get("name"),
-      description: formData.get("description"),
-      platform: formData.get("platform"),
-      platformProjectId: formData.get("platformProjectId")
-    });
-
-    const project = await createProject(parsed);
-    await addAuditLog({
-      action: "project_created",
-      actor: "dashboard_user",
-      status: "success",
-      details: `Created project ${project.name}.`,
-      projectId: project.id
-    });
-
-    revalidatePath("/dashboard");
-    revalidatePath("/dashboard/projects");
-    revalidatePath("/dashboard/keys");
-  }
+  const projects = await listProjects();
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
-        <h1 className="text-2xl font-semibold text-slate-100">Project Inventory</h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-300">
-          Add every deployment target that should receive rotated credentials. Each new project is bootstrapped with AWS, OpenAI, and Stripe key tracking.
-        </p>
+      <Card>
+        <CardHeader>
+          <CardTitle>Add project</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form action={createProjectAction} className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-1 text-sm">
+              <span className="text-[var(--muted)]">Project name</span>
+              <input className="h-10 w-full rounded-md border border-[var(--border)] bg-[#0f1724] px-3" name="name" required />
+            </label>
 
-        <form action={createProjectAction} className="mt-6 grid gap-3 md:grid-cols-2">
-          <label className="space-y-1 text-sm text-slate-300">
-            Project name
-            <input
-              required
-              name="name"
-              placeholder="Customer Analytics API"
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-            />
-          </label>
-          <label className="space-y-1 text-sm text-slate-300">
-            Deployment platform
-            <select
-              required
-              name="platform"
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-cyan-400 focus:outline-none"
-            >
-              <option value="vercel">Vercel</option>
-              <option value="netlify">Netlify</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm text-slate-300">
-            Platform project/site ID
-            <input
-              required
-              name="platformProjectId"
-              placeholder="analytics-api-prod"
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-            />
-          </label>
-          <label className="space-y-1 text-sm text-slate-300 md:col-span-2">
-            Description
-            <textarea
-              required
-              name="description"
-              rows={3}
-              placeholder="Handles event ingestion and powers the product usage dashboard."
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-            />
-          </label>
-          <div className="md:col-span-2">
-            <Button type="submit">Add Project and Track Keys</Button>
+            <label className="space-y-1 text-sm">
+              <span className="text-[var(--muted)]">Platform</span>
+              <select className="h-10 w-full rounded-md border border-[var(--border)] bg-[#0f1724] px-3" name="platform" required>
+                <option value="vercel">Vercel</option>
+                <option value="netlify">Netlify</option>
+              </select>
+            </label>
+
+            <label className="space-y-1 text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Description</span>
+              <textarea className="min-h-24 w-full rounded-md border border-[var(--border)] bg-[#0f1724] p-3" name="description" required />
+            </label>
+
+            <label className="space-y-1 text-sm md:col-span-2">
+              <span className="text-[var(--muted)]">Platform project ID (Vercel project id or Netlify site id)</span>
+              <input className="h-10 w-full rounded-md border border-[var(--border)] bg-[#0f1724] px-3" name="platformProjectId" required />
+            </label>
+
+            <button className="inline-flex h-10 items-center justify-center rounded-md bg-[var(--brand)] px-4 text-sm font-semibold text-white hover:bg-[#3f8cf5] md:col-span-2" type="submit">
+              Create project
+            </button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Connected projects</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {projects.map((project) => (
+              <div key={project.id} className="rounded-md border border-[var(--border)] bg-[#111b2a] p-4">
+                <p className="font-semibold text-white">{project.name}</p>
+                <p className="text-sm text-[var(--muted)]">{project.description}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.12em] text-[var(--muted)]">
+                  {project.platform} • {project.platformProjectId}
+                </p>
+              </div>
+            ))}
+            {projects.length === 0 ? <p className="text-sm text-[var(--muted)]">No projects yet.</p> : null}
           </div>
-        </form>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2">
-        {projects.map((project) => (
-          <ProjectCard
-            key={project.id}
-            project={project}
-            keyCount={keyCounts.get(project.id) ?? 0}
-            staleCount={staleCounts.get(project.id) ?? 0}
-            lastRotatedAt={lastRotatedMap.get(project.id)}
-          />
-        ))}
-      </section>
+        </CardContent>
+      </Card>
     </div>
   );
 }

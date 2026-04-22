@@ -1,169 +1,207 @@
-import { addAuditLog, listKeys, listProjects, updateKeyRotation } from "@/lib/db/store";
-import type { ApiKeyRecord, Project } from "@/lib/db/schema";
-import { rotateAwsKey } from "@/lib/providers/aws";
-import { rotateOpenAIKey } from "@/lib/providers/openai";
-import { rotateStripeKey } from "@/lib/providers/stripe";
-import { syncNetlifyEnvironmentVariable } from "@/lib/providers/netlify";
-import { syncVercelEnvironmentVariable } from "@/lib/providers/vercel";
+import { encryptSecret, decryptSecret } from "@/lib/encryption";
+import { getDerivedStatus, isKeyStale } from "@/lib/key-health";
+import { writeAuditLog } from "@/lib/audit-log";
+import { getKeyById, getProjectById, listKeys, updateKey } from "@/lib/db";
+import { rotateAwsCredential } from "@/lib/providers/aws";
+import { syncNetlifyEnvVar } from "@/lib/providers/netlify";
+import { rotateOpenAICredential } from "@/lib/providers/openai";
+import { rotateStripeCredential } from "@/lib/providers/stripe";
+import { syncVercelEnvVar } from "@/lib/providers/vercel";
 
-export interface RotateKeysInput {
-  actor: string;
-  projectIds?: string[];
+export interface RotationResult {
+  keyId: string;
+  provider: "aws" | "openai" | "stripe";
+  ok: boolean;
+  message: string;
 }
 
-export interface RotateKeysResult {
-  rotated: number;
-  failed: number;
-  details: Array<{
-    keyId: string;
-    projectId: string;
-    provider: ApiKeyRecord["provider"];
-    status: "success" | "error";
-    note: string;
-  }>;
+function asErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return "Unexpected rotation failure";
 }
 
-async function syncDeploymentValue(
-  project: Project,
-  keyName: string,
-  keyValue: string
-): Promise<string> {
-  if (project.platform === "vercel") {
-    const result = await syncVercelEnvironmentVariable({
-      projectId: project.platformProjectId,
-      keyName,
-      keyValue
+async function pushToDeploymentPlatform(input: {
+  platform: "vercel" | "netlify";
+  platformProjectId: string;
+  envVarName: string;
+  newSecret: string;
+}): Promise<string> {
+  if (input.platform === "vercel") {
+    const token = process.env.VERCEL_TOKEN;
+    if (!token) {
+      return "Skipped Vercel sync because VERCEL_TOKEN is not configured.";
+    }
+
+    await syncVercelEnvVar({
+      token,
+      projectId: input.platformProjectId,
+      key: input.envVarName,
+      value: input.newSecret
     });
-    return result.message;
+
+    return "Pushed new value to Vercel environments.";
   }
 
-  const result = await syncNetlifyEnvironmentVariable({
-    siteId: project.platformProjectId,
-    keyName,
-    keyValue
+  const token = process.env.NETLIFY_TOKEN;
+  if (!token) {
+    return "Skipped Netlify sync because NETLIFY_TOKEN is not configured.";
+  }
+
+  await syncNetlifyEnvVar({
+    token,
+    siteId: input.platformProjectId,
+    key: input.envVarName,
+    value: input.newSecret
   });
-  return result.message;
+
+  return "Pushed new value to Netlify environments.";
 }
 
-async function rotateSingleKey(
-  key: ApiKeyRecord,
-  project: Project
-): Promise<{ status: "success" | "error"; note: string; maskedValue?: string }> {
-  if (key.provider === "aws") {
-    const result = await rotateAwsKey({});
-    if (!result.success) {
-      return { status: "error", note: result.notes };
-    }
-
-    const syncNote = await syncDeploymentValue(project, key.keyName, result.newSecret);
-    return { status: "success", note: `${result.notes} ${syncNote}`, maskedValue: result.maskedValue };
+async function rotateSecretForProvider(provider: "aws" | "openai" | "stripe", existingSecret: string): Promise<{ newSecret: string; notes: string }> {
+  if (provider === "aws") {
+    return rotateAwsCredential(existingSecret);
   }
 
-  if (key.provider === "openai") {
-    const result = await rotateOpenAIKey({});
-    if (!result.success) {
-      return { status: "error", note: result.notes };
-    }
-
-    const syncNote = await syncDeploymentValue(project, key.keyName, result.newSecret);
-    return { status: "success", note: `${result.notes} ${syncNote}`, maskedValue: result.maskedValue };
+  if (provider === "openai") {
+    return rotateOpenAICredential();
   }
 
-  const result = await rotateStripeKey();
-  if (!result.success) {
-    return { status: "error", note: result.notes };
-  }
-
-  const syncNote = await syncDeploymentValue(project, key.keyName, result.newSecret);
-  return { status: "success", note: `${result.notes} ${syncNote}`, maskedValue: result.maskedValue };
+  return rotateStripeCredential(existingSecret);
 }
 
-export async function rotateKeys(input: RotateKeysInput): Promise<RotateKeysResult> {
-  const projects = await listProjects();
-  const keys = await listKeys();
+export async function rotateKeyById(input: { keyId: string; actor: string }): Promise<RotationResult> {
+  const key = await getKeyById(input.keyId);
 
-  const projectLookup = new Map(projects.map((project) => [project.id, project]));
-  const projectFilter = input.projectIds?.length ? new Set(input.projectIds) : null;
+  if (!key) {
+    return {
+      keyId: input.keyId,
+      provider: "openai",
+      ok: false,
+      message: "Key not found"
+    };
+  }
 
-  const selectedKeys = keys.filter((key) =>
-    projectFilter ? projectFilter.has(key.projectId) : true
-  );
+  const project = await getProjectById(key.projectId);
 
-  const result: RotateKeysResult = {
-    rotated: 0,
-    failed: 0,
-    details: []
-  };
+  if (!project) {
+    await updateKey(key.id, {
+      status: "error",
+      notes: "Rotation failed because project reference is missing"
+    });
 
-  for (const key of selectedKeys) {
-    const project = projectLookup.get(key.projectId);
-    if (!project) {
-      result.failed += 1;
-      result.details.push({
-        keyId: key.id,
-        projectId: key.projectId,
-        provider: key.provider,
-        status: "error",
-        note: "Project missing from database."
-      });
-      continue;
-    }
-
-    const rotation = await rotateSingleKey(key, project);
-
-    if (rotation.status === "success" && rotation.maskedValue) {
-      await updateKeyRotation({
-        keyId: key.id,
-        maskedValue: rotation.maskedValue,
-        status: "healthy",
-        notes: rotation.note
-      });
-
-      result.rotated += 1;
-
-      await addAuditLog({
-        action: "key_rotated",
-        actor: input.actor,
-        status: "success",
-        details: `${project.name}: rotated ${key.keyName}. ${rotation.note}`,
-        projectId: project.id,
-        provider: key.provider
-      });
-    } else {
-      await updateKeyRotation({
-        keyId: key.id,
-        maskedValue: key.maskedValue,
-        status: "error",
-        notes: rotation.note
-      });
-
-      result.failed += 1;
-
-      await addAuditLog({
-        action: "key_rotation_failed",
-        actor: input.actor,
-        status: "error",
-        details: `${project.name}: failed to rotate ${key.keyName}. ${rotation.note}`,
-        projectId: project.id,
-        provider: key.provider
-      });
-    }
-
-    result.details.push({
+    return {
       keyId: key.id,
-      projectId: key.projectId,
       provider: key.provider,
-      status: rotation.status,
-      note: rotation.note
-    });
+      ok: false,
+      message: "Project not found"
+    };
   }
 
-  await addAuditLog({
-    action: "rotation_batch_completed",
-    actor: input.actor,
-    status: result.failed > 0 ? "warning" : "success",
-    details: `Batch completed: ${result.rotated} rotated, ${result.failed} failed.`
-  });
+  try {
+    const existingSecret = decryptSecret(key.encryptedValue);
+    const rotated = await rotateSecretForProvider(key.provider, existingSecret);
+    const deploySyncNote = await pushToDeploymentPlatform({
+      platform: project.platform,
+      platformProjectId: project.platformProjectId,
+      envVarName: key.envVarName,
+      newSecret: rotated.newSecret
+    });
 
-  return result;
+    const now = new Date().toISOString();
+    await updateKey(key.id, {
+      encryptedValue: encryptSecret(rotated.newSecret),
+      lastRotatedAt: now,
+      status: "healthy",
+      notes: `${rotated.notes} ${deploySyncNote}`.trim()
+    });
+
+    await writeAuditLog({
+      action: "key.rotated",
+      actor: input.actor,
+      projectId: project.id,
+      keyId: key.id,
+      details: {
+        provider: key.provider,
+        envVarName: key.envVarName,
+        platform: project.platform,
+        platformProjectId: project.platformProjectId
+      }
+    });
+
+    return {
+      keyId: key.id,
+      provider: key.provider,
+      ok: true,
+      message: `${rotated.notes} ${deploySyncNote}`.trim()
+    };
+  } catch (error) {
+    const message = asErrorMessage(error);
+
+    await updateKey(key.id, {
+      status: "error",
+      notes: message
+    });
+
+    await writeAuditLog({
+      action: "key.rotation_failed",
+      actor: input.actor,
+      projectId: key.projectId,
+      keyId: key.id,
+      details: {
+        error: message
+      }
+    });
+
+    return {
+      keyId: key.id,
+      provider: key.provider,
+      ok: false,
+      message
+    };
+  }
+}
+
+export async function rotateKeys(input: {
+  actor: string;
+  keyIds?: string[];
+  projectId?: string;
+  onlyStale?: boolean;
+}): Promise<RotationResult[]> {
+  const allKeys = await listKeys(input.projectId);
+  const selected = input.keyIds?.length ? allKeys.filter((key) => input.keyIds?.includes(key.id)) : allKeys;
+  const candidates = input.onlyStale ? selected.filter(isKeyStale) : selected;
+
+  const output: RotationResult[] = [];
+
+  for (const key of candidates) {
+    output.push(await rotateKeyById({ keyId: key.id, actor: input.actor }));
+  }
+
+  return output;
+}
+
+export async function summarizeKeyHealth(input?: { projectId?: string }): Promise<{ total: number; stale: number; error: number }> {
+  const keys = await listKeys(input?.projectId);
+
+  let stale = 0;
+  let error = 0;
+
+  for (const key of keys) {
+    const status = getDerivedStatus(key);
+    if (status === "stale") {
+      stale += 1;
+    }
+    if (status === "error") {
+      error += 1;
+    }
+  }
+
+  return {
+    total: keys.length,
+    stale,
+    error
+  };
 }

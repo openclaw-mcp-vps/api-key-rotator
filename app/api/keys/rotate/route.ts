@@ -1,34 +1,36 @@
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { NextResponse } from "next/server";
-import { rotateKeys } from "@/lib/rotation";
-import { hasPaidCookie } from "@/lib/payments";
 
-const rotationSchema = z.object({
-  projectIds: z.array(z.string()).optional()
+import { getAccessClaimsFromRequest } from "@/lib/auth";
+import { rotateKeys } from "@/lib/rotation";
+
+const rotateSchema = z.object({
+  keyIds: z.array(z.string().uuid()).optional(),
+  projectId: z.string().uuid().optional(),
+  onlyStale: z.boolean().default(false)
 });
 
-export async function POST(request: Request): Promise<NextResponse> {
-  if (!hasPaidCookie(request.headers.get("cookie"))) {
-    return NextResponse.json({ message: "Paid access required" }, { status: 401 });
+export async function POST(request: NextRequest) {
+  const access = getAccessClaimsFromRequest(request);
+  if (!access) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const parsed = rotationSchema.safeParse(body);
-
+  const parsed = rotateSchema.safeParse(await request.json());
   if (!parsed.success) {
-    return NextResponse.json(
-      {
-        message: "Invalid rotation payload",
-        issues: parsed.error.flatten()
-      },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid payload", issues: parsed.error.flatten() }, { status: 400 });
   }
 
-  const result = await rotateKeys({
-    actor: "api_user",
-    projectIds: parsed.data.projectIds
+  const results = await rotateKeys({
+    actor: access.email,
+    keyIds: parsed.data.keyIds,
+    projectId: parsed.data.projectId,
+    onlyStale: parsed.data.onlyStale
   });
 
-  return NextResponse.json({ result });
+  return NextResponse.json({
+    rotated: results.filter((result) => result.ok).length,
+    failed: results.filter((result) => !result.ok).length,
+    results
+  });
 }

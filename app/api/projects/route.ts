@@ -1,74 +1,54 @@
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { NextResponse } from "next/server";
-import { createProject, listKeys, listProjects } from "@/lib/db/store";
-import { hasPaidCookie } from "@/lib/payments";
+
+import { getAccessClaimsFromRequest, isProjectCreationAllowed } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit-log";
+import { countProjects, createProject, listProjects } from "@/lib/db";
 
 const createProjectSchema = z.object({
-  name: z.string().min(3),
-  description: z.string().min(12),
+  name: z.string().min(2).max(80),
+  description: z.string().min(10).max(220),
   platform: z.enum(["vercel", "netlify"]),
-  platformProjectId: z.string().min(2)
+  platformProjectId: z.string().min(3).max(120)
 });
 
-function requirePaidAccess(request: Request): NextResponse | null {
-  if (!hasPaidCookie(request.headers.get("cookie"))) {
-    return NextResponse.json(
-      { message: "Paid access required" },
-      { status: 401 }
-    );
+export async function GET(request: NextRequest) {
+  const access = getAccessClaimsFromRequest(request);
+  if (!access) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  return null;
+  const projects = await listProjects();
+  return NextResponse.json({ projects });
 }
 
-export async function GET(request: Request): Promise<NextResponse> {
-  const blocked = requirePaidAccess(request);
-  if (blocked) {
-    return blocked;
+export async function POST(request: NextRequest) {
+  const access = getAccessClaimsFromRequest(request);
+  if (!access) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [projects, keys] = await Promise.all([listProjects(), listKeys()]);
-
-  const keySummaryByProject = keys.reduce<Record<string, { total: number; stale: number }>>(
-    (accumulator, key) => {
-      const current = accumulator[key.projectId] ?? { total: 0, stale: 0 };
-      current.total += 1;
-      if (key.status === "stale") {
-        current.stale += 1;
-      }
-      accumulator[key.projectId] = current;
-      return accumulator;
-    },
-    {}
-  );
-
-  return NextResponse.json({
-    projects: projects.map((project) => ({
-      ...project,
-      keys: keySummaryByProject[project.id] ?? { total: 0, stale: 0 }
-    }))
-  });
-}
-
-export async function POST(request: Request): Promise<NextResponse> {
-  const blocked = requirePaidAccess(request);
-  if (blocked) {
-    return blocked;
-  }
-
-  const body = await request.json();
-  const parsed = createProjectSchema.safeParse(body);
-
+  const parsed = createProjectSchema.safeParse(await request.json());
   if (!parsed.success) {
-    return NextResponse.json(
-      {
-        message: "Invalid project payload",
-        issues: parsed.error.flatten()
-      },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid payload", issues: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const projectCount = await countProjects();
+  if (!isProjectCreationAllowed(access, projectCount)) {
+    return NextResponse.json({ error: "Project limit reached for current plan" }, { status: 403 });
   }
 
   const project = await createProject(parsed.data);
+
+  await writeAuditLog({
+    action: "project.created",
+    actor: access.email,
+    projectId: project.id,
+    details: {
+      platform: project.platform,
+      platformProjectId: project.platformProjectId
+    }
+  });
+
   return NextResponse.json({ project }, { status: 201 });
 }

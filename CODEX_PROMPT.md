@@ -11,7 +11,7 @@ NICHE: security-ops
 PRICE: $$19/mo for 5 projects, $59/mo unlimited/mo
 
 ARCHITECTURE SPEC:
-Next.js app with dashboard for managing API key rotation across multiple cloud providers and deployment platforms. Uses webhooks and scheduled jobs to automate key rotation, with audit logging and compliance tracking.
+Next.js app with dashboard for managing API key rotations across multiple cloud providers and deployment platforms. Uses secure credential storage, automated rotation workflows, and audit logging with SOC2-compliant tracking.
 
 PLANNED FILES:
 - app/page.tsx
@@ -21,25 +21,29 @@ PLANNED FILES:
 - app/dashboard/audit/page.tsx
 - app/api/auth/[...nextauth]/route.ts
 - app/api/projects/route.ts
+- app/api/keys/route.ts
 - app/api/keys/rotate/route.ts
-- app/api/webhooks/vercel/route.ts
-- app/api/webhooks/netlify/route.ts
-- app/api/cron/check-stale-keys/route.ts
+- app/api/webhooks/lemon-squeezy/route.ts
+- components/ui/button.tsx
+- components/ui/card.tsx
+- components/ui/table.tsx
+- components/dashboard/project-card.tsx
+- components/dashboard/key-status.tsx
+- components/dashboard/rotation-history.tsx
+- components/landing/hero.tsx
+- components/landing/pricing.tsx
+- lib/auth.ts
+- lib/db.ts
 - lib/providers/aws.ts
 - lib/providers/openai.ts
 - lib/providers/stripe.ts
 - lib/providers/vercel.ts
 - lib/providers/netlify.ts
-- lib/db/schema.ts
-- lib/auth.ts
-- lib/payments.ts
-- components/ui/button.tsx
-- components/ui/table.tsx
-- components/dashboard/project-card.tsx
-- components/dashboard/key-status.tsx
-- components/dashboard/rotation-history.tsx
+- lib/encryption.ts
+- lib/audit-log.ts
+- prisma/schema.prisma
 
-DEPENDENCIES: next, react, typescript, tailwindcss, @tailwindcss/forms, next-auth, @auth/prisma-adapter, prisma, @prisma/client, aws-sdk, openai, stripe, @vercel/node, netlify, zod, date-fns, lucide-react, @lemonsqueezy/lemonsqueezy.js, resend, cron-parser
+DEPENDENCIES: next, react, typescript, tailwindcss, next-auth, prisma, @prisma/client, aws-sdk, stripe, openai, @vercel/sdk, netlify, crypto-js, date-fns, lucide-react, @lemonsqueezy/lemonsqueezy.js, zod, react-hook-form
 
 REQUIREMENTS:
 - Next.js 15 with App Router (app/ directory)
@@ -47,7 +51,7 @@ REQUIREMENTS:
 - Tailwind CSS v4
 - shadcn/ui components (npx shadcn@latest init, then add needed components)
 - Dark theme ONLY — background #0d1117, no light mode
-- Lemon Squeezy checkout overlay for payments
+- Stripe Payment Link for payments (hosted checkout — use the URL directly as the Buy button href)
 - Landing page that converts: hero, problem, solution, pricing, FAQ
 - The actual tool/feature behind a paywall (cookie-based access after purchase)
 - Mobile responsive
@@ -67,9 +71,13 @@ REQUIREMENTS:
   to package.json dependencies and re-run npm install + npm run build until it passes.
 
 ENVIRONMENT VARIABLES (create .env.example):
-- NEXT_PUBLIC_LEMON_SQUEEZY_STORE_ID
-- NEXT_PUBLIC_LEMON_SQUEEZY_PRODUCT_ID
-- LEMON_SQUEEZY_WEBHOOK_SECRET
+- NEXT_PUBLIC_STRIPE_PAYMENT_LINK  (full URL, e.g. https://buy.stripe.com/test_XXX)
+- NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY  (pk_test_... or pk_live_...)
+- STRIPE_WEBHOOK_SECRET  (set when webhook is wired)
+
+BUY BUTTON RULE: the Buy button's href MUST be `process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK`
+used as-is — do NOT construct URLs from a product ID, do NOT prepend any base URL,
+do NOT wrap it in an embed iframe. The link opens Stripe's hosted checkout directly.
 
 After creating all files:
 1. Run: npm install

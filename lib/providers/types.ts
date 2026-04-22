@@ -1,12 +1,4 @@
-export interface RotationResult {
-  success: boolean;
+export interface RotationOutcome {
   newSecret: string;
-  maskedValue: string;
-  mode: "live" | "simulated";
   notes: string;
-}
-
-export interface DeploymentSyncResult {
-  synced: boolean;
-  message: string;
 }
